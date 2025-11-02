@@ -11,6 +11,7 @@ A Python library for extracting ETF holdings data from SEC N-PORT filings with *
 - **Rate-limited requests** - Built-in SEC compliance and proper error handling
 - **Clean data output** - Structured data with issuer, CUSIP, ISIN, values, and weights
 - **Batch processing** - Single ETF and multiple ETF processing capabilities
+- **Portfolio overlap analysis** - Identify shared holdings across multiple ETFs
 
 ## Supported ETFs
 
@@ -136,6 +137,55 @@ if not result['rows']:
 else:
     print(f"Success: {len(result['rows'])} positions")
 ```
+
+## Portfolio Overlap Analysis
+
+The library includes a powerful portfolio analysis tool to identify overlapping holdings across multiple ETFs:
+
+### Command Line Usage
+
+```bash
+# Analyze overlap between major index ETFs
+python analyze_portfolio.py VTI SPY QQQ
+
+# Export analysis to CSV
+python analyze_portfolio.py VTI SPY --export overlap_analysis.csv
+
+# Quick analysis with fewer filings
+python analyze_portfolio.py VTI SPY --max-filings 10 --top 15
+
+# Verbose output with detailed progress
+python analyze_portfolio.py VTI RSP AIQ --verbose
+```
+
+### Example Output
+
+```
+📊 PORTFOLIO OVERLAP ANALYSIS REPORT
+================================================================================
+
+📈 SUMMARY STATISTICS
+   • Total ETFs analyzed: 2
+   • ETFs with data: 2
+   • Total positions: 4,086
+   • Unique securities: 3,574
+   • Overlapping securities: 475
+   • Overlap percentage: 13.3%
+
+🏆 TOP MOST OVERLAPPED SECURITIES
+    1. United Airlines Holdings Inc (CUSIP: 910047109)
+       Found in 2 ETFs: SPY, VTI
+    2. Digital Realty Trust Inc (CUSIP: 253868103)
+       Found in 2 ETFs: SPY, VTI
+```
+
+### Portfolio Analysis Features
+
+- **Overlap Detection** - Finds securities held in multiple ETFs
+- **Diversification Scoring** - Measures portfolio concentration risk
+- **ETF Pair Analysis** - Shows which ETF combinations have highest overlap
+- **CSV Export** - Export detailed overlap data for further analysis
+- **Risk Assessment** - Provides diversification recommendations
 
 ## Adding New ETFs
 
