@@ -33,6 +33,7 @@ setup(
         "requests>=2.25.0",
         "pandas>=1.3.0",
         "lxml>=4.6.0",
+        "sec-edgar-downloader>=5.0.0",
     ],
     extras_require={
         "dev": [

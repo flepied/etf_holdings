@@ -12,7 +12,7 @@ from etf_holdings import (
     ETFHoldingsExtractor,
 )
 
-TICKERS = ETFHoldingsExtractor.KNOWN_ETF_CIKS.keys()
+TICKERS = ["RSP", "AIQ", "FENY", "NLR", "USCA", "VONV", "VTI", "XSHQ"]
 UNSUPPORTED_TICKERS = ["BIL", "IAU", "TLT", "TBIL", "SHY"]  # Known unsupported ETFs
 
 
@@ -86,9 +86,17 @@ class TestIndividualETFs:
         assert result["ticker"] == ticker
         assert isinstance(result["rows"], list)
         assert len(result["rows"]) == 0, f"{ticker} should return no holdings"
-        assert (
-            "CIK/series not found" in result["note"]
-        ), f"{ticker} should have failure message"
+
+        # Check for any valid failure message
+        valid_failure_messages = [
+            "CIK/series not found",
+            "not found in automatic discovery database",
+            "No NPORT-P filings found via auto-discovery",
+            "auto-discovery disabled",
+        ]
+        assert any(
+            msg in result["note"] for msg in valid_failure_messages
+        ), f"{ticker} should have a valid failure message, got: {result['note']}"
 
     def test_unknown_etf(self):
         """Test handling of completely unknown ETF ticker."""
@@ -96,7 +104,10 @@ class TestIndividualETFs:
 
         assert result["ticker"] == "UNKNOWN_ETF_TICKER_12345"
         assert len(result["rows"]) == 0
-        assert "CIK/series not found" in result["note"]
+        assert (
+            "CIK/series not found" in result["note"]
+            or "not found in automatic discovery database" in result["note"]
+        )
 
     def test_vti_large_holdings(self):
         """Test VTI specifically for large number of holdings."""
@@ -148,7 +159,9 @@ class TestBatchProcessing:
 
     def test_all_ib_portfolio_batch(self):
         """Test batch processing of all supported ETFs."""
-        results = get_multiple_etf_holdings(list(TICKERS), max_filings=10, verbose=False)
+        results = get_multiple_etf_holdings(
+            list(TICKERS), max_filings=10, verbose=False
+        )
 
         summary = results["summary"]
         assert summary["total_etfs_processed"] == len(TICKERS)
@@ -157,14 +170,18 @@ class TestBatchProcessing:
 
         # Test that we get reasonable success rate
         success_rate = summary["etfs_with_holdings"] / summary["total_etfs_processed"]
-        assert success_rate >= 0.7, f"Success rate should be at least 70%, got {success_rate:.1%}"
+        assert (
+            success_rate >= 0.7
+        ), f"Success rate should be at least 70%, got {success_rate:.1%}"
 
         # Test that at least some key ETFs work
-        key_etfs = ['RSP', 'AIQ', 'NLR']  # These should definitely work
+        key_etfs = ["RSP", "AIQ", "NLR"]  # These should definitely work
         for ticker in key_etfs:
             if ticker in results["individual_results"]:
                 result = results["individual_results"][ticker]
-                assert len(result["rows"]) > 0, f"{ticker} should have holdings in batch"
+                assert (
+                    len(result["rows"]) > 0
+                ), f"{ticker} should have holdings in batch"
 
     def test_consolidated_holdings_structure(self):
         """Test structure of consolidated holdings data."""
