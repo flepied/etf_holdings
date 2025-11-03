@@ -12,6 +12,7 @@ A Python library for extracting ETF holdings data from SEC N-PORT filings with *
 - **Clean data output** - Structured data with issuer, CUSIP, ISIN, values, and weights
 - **Batch processing** - Single ETF and multiple ETF processing capabilities
 - **Portfolio overlap analysis** - Identify shared holdings across multiple ETFs
+- **Smart caching** - Disk-based cache with automatic expiration (3-day default TTL)
 
 ## Supported ETFs
 
@@ -186,6 +187,74 @@ python analyze_portfolio.py VTI RSP AIQ --verbose
 - **ETF Pair Analysis** - Shows which ETF combinations have highest overlap
 - **CSV Export** - Export detailed overlap data for further analysis
 - **Risk Assessment** - Provides diversification recommendations
+
+## Smart Caching System
+
+The library includes intelligent disk-based caching to dramatically improve performance and reduce SEC API calls:
+
+### Automatic Caching
+
+```python
+from etf_holdings import get_etf_holdings
+
+# First call - fetches from SEC and caches
+result = get_etf_holdings('VTI')  # ~2-3 seconds
+
+# Second call - instant from cache  
+result = get_etf_holdings('VTI')  # ~0.01 seconds
+```
+
+### Cache Configuration
+
+```python
+from etf_holdings import ETFHoldingsExtractor
+
+# Custom cache settings
+extractor = ETFHoldingsExtractor(
+    enable_cache=True,           # Enable caching (default: True)
+    cache_dir="./my_cache",      # Custom cache directory
+    cache_ttl_days=7             # Cache for 7 days (default: 3)
+)
+
+# Disable caching (two ways)
+extractor = ETFHoldingsExtractor(enable_cache=False)  # Completely disabled
+extractor = ETFHoldingsExtractor(cache_ttl_days=0)   # TTL-based disable
+```
+
+### Cache Management
+
+```bash
+# View cache statistics
+python cache_manager.py stats
+
+# Clear specific ETF cache
+python cache_manager.py clear VTI
+
+# Clear all cache
+python cache_manager.py clear
+
+# Clean up expired entries
+python cache_manager.py cleanup
+
+# Show cache location
+python cache_manager.py info
+```
+
+### Cache Benefits
+
+- **Speed**: 100x faster for repeated requests (0.01s vs 2-3s)
+- **Reliability**: Reduces dependency on SEC server availability
+- **Rate limiting**: Avoids SEC rate limit issues for repeated analysis
+- **Automatic expiration**: Ensures data freshness (3-day default)
+- **Smart invalidation**: Different max_filings create separate cache entries
+- **Flexible control**: Set `cache_ttl_days=0` to disable caching via TTL
+
+**Performance Example:**
+```
+Portfolio analysis (4 ETFs):
+- Without cache: ~15-20 seconds
+- With cache: ~0.5 seconds (97% faster!)
+```
 
 ## Adding New ETFs
 

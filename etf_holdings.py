@@ -10,6 +10,8 @@ Extract US ETF holdings via SEC (EDGAR) from tickers using automatic discovery.
 
 import time
 import tempfile
+import json
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import logging
 import requests
@@ -26,6 +28,222 @@ BASE = "https://data.sec.gov"
 BASE_ARCHIVES = "https://www.sec.gov"
 USER_AGENT = {"User-Agent": "etf-holdings-lib/2.0 (contact@example.com)"}
 REQUEST_DELAY = 0.2
+
+
+class ETFHoldingsCache:
+    """
+    Disk-based cache for ETF holdings data with automatic expiration.
+    """
+
+    def __init__(self, cache_dir: Optional[str] = None, cache_ttl_days: int = 3):
+        """
+        Initialize the cache.
+
+        Args:
+            cache_dir: Directory for cache files (default: ~/.etf_holdings_cache)
+            cache_ttl_days: Cache time-to-live in days (default: 3, 0=disable caching)
+        """
+        if cache_dir:
+            self.cache_dir = Path(cache_dir)
+        else:
+            self.cache_dir = Path.home() / ".etf_holdings_cache"
+
+        self.cache_ttl_days = cache_ttl_days
+        self.cache_dir.mkdir(exist_ok=True)
+
+        # Create cache info file if it doesn't exist
+        self.info_file = self.cache_dir / "cache_info.json"
+        if not self.info_file.exists():
+            self._write_cache_info({})
+
+    def _get_cache_filename(self, ticker: str, max_filings: int) -> str:
+        """Generate a human-readable cache filename."""
+        # Include max_filings to handle different search depths
+        return f"{ticker.upper()}_{max_filings}.json"
+
+    def _get_cache_file(self, ticker: str, max_filings: int) -> Path:
+        """Get the cache file path for a given ticker and max_filings."""
+        filename = self._get_cache_filename(ticker, max_filings)
+        return self.cache_dir / filename
+
+    def _write_cache_info(self, info: Dict):
+        """Write cache metadata."""
+        with open(self.info_file, "w") as f:
+            json.dump(info, f, indent=2)
+
+    def _read_cache_info(self) -> Dict:
+        """Read cache metadata."""
+        try:
+            with open(self.info_file, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def is_cache_valid(self, ticker: str, max_filings: int) -> bool:
+        """Check if cached data exists and is still valid."""
+        # If TTL is 0, disable caching completely
+        if self.cache_ttl_days <= 0:
+            return False
+
+        cache_file = self._get_cache_file(ticker, max_filings)
+
+        if not cache_file.exists():
+            return False
+
+        try:
+            # Check file modification time
+            file_time = datetime.fromtimestamp(cache_file.stat().st_mtime)
+            expiry_time = file_time + timedelta(days=self.cache_ttl_days)
+
+            if datetime.now() > expiry_time:
+                logger.debug(f"Cache expired for {ticker} (cached: {file_time})")
+                return False
+
+            return True
+        except Exception as e:
+            logger.debug(f"Error checking cache validity for {ticker}: {e}")
+            return False
+
+    def get_cached_data(self, ticker: str, max_filings: int) -> Optional[Dict]:
+        """Retrieve cached holdings data if valid."""
+        if not self.is_cache_valid(ticker, max_filings):
+            return None
+
+        cache_file = self._get_cache_file(ticker, max_filings)
+
+        try:
+            with open(cache_file, "r") as f:
+                data = json.load(f)
+
+            logger.info(
+                f"📁 Using cached data for {ticker} ({len(data.get('rows', []))} holdings)"
+            )
+            return data
+        except Exception as e:
+            logger.error(f"Error reading cache for {ticker}: {e}")
+            return None
+
+    def store_data(self, ticker: str, max_filings: int, data: Dict):
+        """Store holdings data in cache."""
+        # If TTL is 0, don't store anything
+        if self.cache_ttl_days <= 0:
+            logger.debug(f"Caching disabled (TTL=0), not storing {ticker}")
+            return
+
+        cache_file = self._get_cache_file(ticker, max_filings)
+
+        try:
+            # Add cache metadata
+            cached_data = {
+                **data,
+                "_cache_info": {
+                    "ticker": ticker,
+                    "max_filings": max_filings,
+                    "cached_at": datetime.now().isoformat(),
+                    "filename": self._get_cache_filename(ticker, max_filings),
+                },
+            }
+
+            with open(cache_file, "w") as f:
+                json.dump(cached_data, f, indent=2)
+
+            # Update cache info
+            info = self._read_cache_info()
+            info[ticker] = {
+                "filename": self._get_cache_filename(ticker, max_filings),
+                "cached_at": datetime.now().isoformat(),
+                "max_filings": max_filings,
+                "holdings_count": len(data.get("rows", [])),
+            }
+            self._write_cache_info(info)
+
+            logger.info(
+                f"💾 Cached {ticker} data ({len(data.get('rows', []))} holdings)"
+            )
+        except Exception as e:
+            logger.error(f"Error storing cache for {ticker}: {e}")
+
+    def clear_cache(self, ticker: Optional[str] = None):
+        """Clear cache for specific ticker or all cache."""
+        if ticker:
+            # Clear specific ticker - need to find all files for this ticker
+            info = self._read_cache_info()
+            ticker_upper = ticker.upper()
+            
+            # Find all cache files for this ticker (different max_filings)
+            cleared_files = []
+            for cache_ticker, cache_info in list(info.items()):
+                if cache_ticker == ticker_upper:
+                    filename = cache_info["filename"]
+                    cache_file = self.cache_dir / filename
+                    if cache_file.exists():
+                        cache_file.unlink()
+                        cleared_files.append(filename)
+                    del info[cache_ticker]
+            
+            # Also check for any orphaned files matching the ticker pattern
+            pattern = f"{ticker_upper}_*.json"
+            for cache_file in self.cache_dir.glob(pattern):
+                if cache_file.name != "cache_info.json":
+                    cache_file.unlink()
+                    if cache_file.name not in cleared_files:
+                        cleared_files.append(cache_file.name)
+            
+            if cleared_files:
+                self._write_cache_info(info)
+                logger.info(f"🗑️  Cleared {len(cleared_files)} cache file(s) for {ticker}: {', '.join(cleared_files)}")
+            else:
+                logger.info(f"No cache found for {ticker}")
+        else:
+            # Clear all cache
+            import shutil
+
+            if self.cache_dir.exists():
+                shutil.rmtree(self.cache_dir)
+                self.cache_dir.mkdir(exist_ok=True)
+                self._write_cache_info({})
+                logger.info("🗑️  Cleared all cache")
+
+    def get_cache_stats(self) -> Dict:
+        """Get cache statistics."""
+        info = self._read_cache_info()
+
+        total_files = len(list(self.cache_dir.glob("*.json"))) - 1  # Exclude info file
+        total_size = sum(f.stat().st_size for f in self.cache_dir.glob("*.json"))
+
+        stats = {
+            "cache_dir": str(self.cache_dir),
+            "ttl_days": self.cache_ttl_days,
+            "total_cached_etfs": len(info),
+            "total_files": total_files,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "cached_etfs": info,
+        }
+
+        return stats
+
+    def cleanup_expired(self):
+        """Remove expired cache entries."""
+        info = self._read_cache_info()
+        expired_tickers = []
+
+        for ticker, ticker_info in info.items():
+            if not self.is_cache_valid(ticker, ticker_info["max_filings"]):
+                filename = ticker_info["filename"]
+                cache_file = self.cache_dir / filename
+                if cache_file.exists():
+                    cache_file.unlink()
+                expired_tickers.append(ticker)
+
+        # Update info file
+        for ticker in expired_tickers:
+            del info[ticker]
+        self._write_cache_info(info)
+
+        if expired_tickers:
+            logger.info(f"🧹 Cleaned up {len(expired_tickers)} expired cache entries")
+
+        return len(expired_tickers)
 
 
 class ETFHoldingsExtractor:
@@ -62,6 +280,9 @@ class ETFHoldingsExtractor:
         user_agent: Optional[str] = None,
         delay: float = 0.2,
         enable_auto_discovery: bool = True,
+        enable_cache: bool = True,
+        cache_dir: Optional[str] = None,
+        cache_ttl_days: int = 3,
     ):
         """
         Initialize the ETF Holdings Extractor.
@@ -70,10 +291,27 @@ class ETFHoldingsExtractor:
             user_agent: Custom user agent for SEC requests
             delay: Delay between requests to respect SEC rate limits
             enable_auto_discovery: Enable automatic ticker-to-CIK discovery
+            enable_cache: Enable disk-based caching (default: True)
+            cache_dir: Custom cache directory (default: ~/.etf_holdings_cache)
+            cache_ttl_days: Cache time-to-live in days (default: 3, 0=disable caching)
         """
         self.delay = delay
         self.headers = {"User-Agent": user_agent or USER_AGENT["User-Agent"]}
         self.enable_auto_discovery = enable_auto_discovery
+        self.enable_cache = enable_cache
+
+        # Initialize caching
+        if self.enable_cache:
+            self.cache = ETFHoldingsCache(
+                cache_dir=cache_dir, cache_ttl_days=cache_ttl_days
+            )
+            if cache_ttl_days <= 0:
+                logger.info("📁 Cache system initialized but disabled (TTL=0)")
+            else:
+                logger.info(f"📁 Cache enabled (TTL: {cache_ttl_days} days)")
+        else:
+            self.cache = None
+            logger.info("Cache disabled")
 
         # Initialize auto-discovery components
         if self.enable_auto_discovery:
@@ -102,6 +340,27 @@ class ETFHoldingsExtractor:
         Returns:
             Dict with keys: 'ticker', 'rows', 'note'
         """
+        ticker = ticker.upper()
+
+        # Check cache first
+        if self.enable_cache and self.cache:
+            cached_data = self.cache.get_cached_data(ticker, max_filings)
+            if cached_data:
+                # Remove cache metadata before returning
+                result = {k: v for k, v in cached_data.items() if k != "_cache_info"}
+                return result
+
+        # Cache miss - fetch fresh data
+        result = self._fetch_fresh_data(ticker, max_filings, verbose)
+
+        # Store in cache if enabled and we got data
+        if self.enable_cache and self.cache and result.get("rows"):
+            self.cache.store_data(ticker, max_filings, result)
+
+        return result
+
+    def _fetch_fresh_data(self, ticker: str, max_filings: int, verbose: bool) -> Dict:
+        """Fetch fresh data from SEC (not cached)."""
         # Try known mappings first (faster and more reliable)
         if ticker in self.KNOWN_ETF_CIKS:
             if verbose:
@@ -567,6 +826,30 @@ class ETFHoldingsExtractor:
 
             shutil.rmtree(self.temp_folder)
             logger.info(f"Cleaned up temp folder: {self.temp_folder}")
+
+    # Cache management methods
+    def clear_cache(self, ticker: Optional[str] = None):
+        """Clear cache for specific ticker or all cache."""
+        if self.enable_cache and self.cache:
+            self.cache.clear_cache(ticker)
+        else:
+            logger.info("Cache is disabled")
+
+    def get_cache_stats(self) -> Optional[Dict]:
+        """Get cache statistics."""
+        if self.enable_cache and self.cache:
+            return self.cache.get_cache_stats()
+        else:
+            logger.info("Cache is disabled")
+            return None
+
+    def cleanup_expired_cache(self):
+        """Clean up expired cache entries."""
+        if self.enable_cache and self.cache:
+            return self.cache.cleanup_expired()
+        else:
+            logger.info("Cache is disabled")
+            return 0
 
 
 # Convenience functions for direct usage
