@@ -169,7 +169,7 @@ class ETFHoldingsCache:
             # Clear specific ticker - need to find all files for this ticker
             info = self._read_cache_info()
             ticker_upper = ticker.upper()
-            
+
             # Find all cache files for this ticker (different max_filings)
             cleared_files = []
             for cache_ticker, cache_info in list(info.items()):
@@ -180,7 +180,7 @@ class ETFHoldingsCache:
                         cache_file.unlink()
                         cleared_files.append(filename)
                     del info[cache_ticker]
-            
+
             # Also check for any orphaned files matching the ticker pattern
             pattern = f"{ticker_upper}_*.json"
             for cache_file in self.cache_dir.glob(pattern):
@@ -188,10 +188,12 @@ class ETFHoldingsCache:
                     cache_file.unlink()
                     if cache_file.name not in cleared_files:
                         cleared_files.append(cache_file.name)
-            
+
             if cleared_files:
                 self._write_cache_info(info)
-                logger.info(f"🗑️  Cleared {len(cleared_files)} cache file(s) for {ticker}: {', '.join(cleared_files)}")
+                logger.info(
+                    f"🗑️  Cleared {len(cleared_files)} cache file(s) for {ticker}: {', '.join(cleared_files)}"
+                )
             else:
                 logger.info(f"No cache found for {ticker}")
         else:
@@ -273,6 +275,20 @@ class ETFHoldingsExtractor:
         # Newly discovered via sec-edgar-downloader
         "QQQ": ("0001067839", None, None),  # Invesco QQQ Trust
         "SPY": ("0000884394", None, None),  # SPDR S&P 500 ETF Trust
+    }
+
+    # iShares ETFs - Use CSV data source instead of SEC filings
+    ISHARES_ETF_MAPPINGS = {
+        "URTH": "239696",  # iShares MSCI World ETF
+        "IVV": "239726",  # iShares Core S&P 500 ETF
+        "EFA": "239623",  # iShares MSCI EAFE ETF
+        "IEMG": "244048",  # iShares Core MSCI Emerging Markets IMI Index ETF
+        "ACWI": "239600",  # iShares MSCI ACWI ETF
+        "AGG": "239458",  # iShares Core US Aggregate Bond ETF
+        "IJH": "239763",  # iShares Core S&P Mid-Cap ETF
+        "IJR": "239774",  # iShares Core S&P Small-Cap ETF
+        "IEFA": "251622",  # iShares Core MSCI EAFE IMI Index ETF
+        "ITOT": "239724",  # iShares Core S&P Total US Stock Market ETF
     }
 
     def __init__(
@@ -361,7 +377,13 @@ class ETFHoldingsExtractor:
 
     def _fetch_fresh_data(self, ticker: str, max_filings: int, verbose: bool) -> Dict:
         """Fetch fresh data from SEC (not cached)."""
-        # Try known mappings first (faster and more reliable)
+        # Try iShares CSV first
+        if ticker in self.ISHARES_ETF_MAPPINGS:
+            if verbose:
+                logger.info(f"Using iShares CSV extraction for {ticker}")
+            return self._extract_via_ishares_csv(ticker, verbose)
+
+        # Try known mappings second (faster and more reliable)
         if ticker in self.KNOWN_ETF_CIKS:
             if verbose:
                 logger.info(f"Using known mapping for {ticker}")
@@ -556,6 +578,123 @@ class ETFHoldingsExtractor:
             "rows": [],
             "note": f"No holdings found in {len(filing_dirs)} auto-discovered filings.",
         }
+
+    def _extract_via_ishares_csv(self, ticker: str, verbose: bool) -> Dict:
+        """Extract holdings via iShares CSV download."""
+        import csv
+        import io
+
+        product_id = self.ISHARES_ETF_MAPPINGS[ticker]
+
+        if verbose:
+            logger.info(
+                f"Downloading iShares CSV for {ticker} (Product ID: {product_id})"
+            )
+
+        # Construct iShares CSV URL
+        url = f"https://www.ishares.com/us/products/{product_id}/ishares-{ticker.lower()}-etf/1467271812596.ajax?fileType=csv&fileName={ticker}_holdings&dataType=fund"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            time.sleep(self.delay)
+
+            # Parse CSV content
+            content = response.text
+            if verbose:
+                logger.info(f"Downloaded {len(content)} bytes of CSV data")
+
+            return self._parse_ishares_csv(content, ticker, verbose)
+
+        except Exception as e:
+            logger.error(f"Error downloading iShares CSV for {ticker}: {e}")
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": f"Failed to download iShares CSV: {str(e)[:100]}",
+            }
+
+    def _parse_ishares_csv(self, content: str, ticker: str, verbose: bool) -> Dict:
+        """Parse iShares CSV format and extract holdings."""
+        import csv
+        import io
+
+        try:
+            lines = content.strip().split("\n")
+
+            # Find the header line (contains "Ticker,Name,Sector...")
+            header_line_idx = None
+            for i, line in enumerate(lines):
+                if line.startswith("Ticker,Name,Sector"):
+                    header_line_idx = i
+                    break
+
+            if header_line_idx is None:
+                return {
+                    "ticker": ticker,
+                    "rows": [],
+                    "note": "Could not find CSV header in iShares data",
+                }
+
+            # Extract data lines (skip header and any footer)
+            data_lines = lines[header_line_idx:]
+
+            # Parse CSV
+            reader = csv.DictReader(io.StringIO("\n".join(data_lines)))
+
+            rows = []
+            for row in reader:
+                # Skip empty rows or cash entries
+                ticker_val = row.get("Ticker", "") or ""
+                name_val = row.get("Name", "") or ""
+
+                if not ticker_val or ticker_val == "-" or not name_val:
+                    continue
+
+                # Clean values safely
+                def safe_clean(value, default=""):
+                    if value is None:
+                        return default
+                    return (
+                        str(value)
+                        .replace(",", "")
+                        .replace("$", "")
+                        .replace('"', "")
+                        .strip()
+                    )
+
+                # Convert to our standard format
+                holding = {
+                    "ticker_fund": ticker,
+                    "issuer": safe_clean(name_val),
+                    "title": f"{safe_clean(name_val)} ({safe_clean(ticker_val)})",
+                    "id_cusip": "",  # iShares doesn't provide CUSIP in CSV
+                    "id_isin": "",  # iShares doesn't provide ISIN in CSV
+                    "balance": safe_clean(row.get("Quantity", "")),
+                    "value_usd": safe_clean(row.get("Market Value", "")),
+                    "weight_pct": safe_clean(row.get("Weight (%)", "")),
+                }
+
+                # Only add if we have meaningful data
+                if holding["issuer"] and holding["issuer"] != "-":
+                    rows.append(holding)
+
+            if verbose:
+                logger.info(f"Parsed {len(rows)} holdings from iShares CSV")
+
+            return {
+                "ticker": ticker,
+                "rows": rows,
+                "note": f"OK via iShares CSV download ({len(rows)} holdings)",
+            }
+
+        except Exception as e:
+            logger.error(f"Error parsing iShares CSV for {ticker}: {e}")
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": f"Error parsing iShares CSV: {str(e)[:100]}",
+            }
 
     # Include all the helper methods from the original implementation
     def _get_submissions(self, cik_str: str) -> Dict:

@@ -16,7 +16,21 @@ A Python library for extracting ETF holdings data from SEC N-PORT filings with *
 
 ## Supported ETFs
 
-### Known High-Performance ETFs (Optimized)
+### iShares ETFs (Direct CSV Integration) 🔥
+The world's largest ETF provider now fully supported via direct CSV data extraction:
+
+- **URTH** - iShares MSCI World ETF (1,347+ positions) 🌍
+- **IVV** - iShares Core S&P 500 ETF (508+ positions) 📈
+- **EFA** - iShares MSCI EAFE ETF (international developed markets) 🌐
+- **IEMG** - iShares Core MSCI Emerging Markets IMI Index ETF 🚀
+- **ACWI** - iShares MSCI ACWI ETF (global equity) 🌏
+- **AGG** - iShares Core US Aggregate Bond ETF (bonds) 💰
+- **IJH** - iShares Core S&P Mid-Cap ETF 📊
+- **IJR** - iShares Core S&P Small-Cap ETF 📉
+- **IEFA** - iShares Core MSCI EAFE IMI Index ETF 🌍
+- **ITOT** - iShares Core S&P Total US Stock Market ETF 🇺🇸
+
+### Known High-Performance ETFs (SEC NPORT)
 These ETFs use curated mappings for fastest processing:
 
 - **VTI** - Vanguard Total Stock Market ETF (3,582+ positions) ⚡
@@ -33,7 +47,6 @@ These ETFs use curated mappings for fastest processing:
 ### Automatic Discovery Coverage
 **10,000+ additional ETFs** supported via automatic ticker-to-CIK discovery. The library will automatically attempt to find and extract holdings for any ETF ticker, including:
 
-- iShares ETFs (some)
 - Additional Vanguard ETFs  
 - SPDR family ETFs
 - Invesco ETFs
@@ -52,13 +65,17 @@ pip install -e .
 ```python
 from etf_holdings import get_etf_holdings
 
-# Get VTI holdings
+# Get VTI holdings (via SEC NPORT filings)
 result = get_etf_holdings('VTI', verbose=True)
 print(f"Found {len(result['rows'])} positions for VTI")
 
+# Get iShares URTH holdings (via direct CSV)
+result = get_etf_holdings('URTH', verbose=True)
+print(f"Found {len(result['rows'])} positions for URTH")
+
 # Access holdings data
 for holding in result['rows'][:5]:  # First 5 positions
-    print(f"{holding['issuer']}: ${holding['value_usd']}")
+    print(f"{holding['issuer']}: {holding['weight_pct']}%")
 ```
 
 ### Multiple ETF Holdings
@@ -66,8 +83,8 @@ for holding in result['rows'][:5]:  # First 5 positions
 ```python
 from etf_holdings import get_multiple_etf_holdings
 
-# Get holdings for multiple ETFs
-tickers = ['VTI', 'NLR', 'RSP']
+# Get holdings for multiple ETFs (mixed sources)
+tickers = ['VTI', 'URTH', 'RSP']  # SEC NPORT, iShares CSV, SEC NPORT
 results = get_multiple_etf_holdings(tickers, verbose=True)
 
 print(f"Total positions: {results['summary']['total_positions']}")
@@ -287,14 +304,32 @@ The library respects SEC rate limits with:
 
 ## Data Sources
 
-This library extracts data from SEC EDGAR N-PORT filings, which are required quarterly reports that provide detailed portfolio holdings for registered investment companies, including ETFs.
+This library supports multiple data extraction methods:
+
+### SEC EDGAR N-PORT Filings
+- **Used by**: Most US ETFs (Vanguard, SPDR, Invesco, etc.)
+- **Data**: Quarterly portfolio holdings with detailed CUSIP/ISIN identifiers
+- **Format**: XML documents with comprehensive security details
+- **Frequency**: Updated quarterly with detailed position data
+
+### iShares Direct CSV Downloads  
+- **Used by**: BlackRock iShares ETFs (world's largest ETF provider)
+- **Data**: Real-time portfolio holdings via direct CSV downloads
+- **Format**: CSV with ticker, name, sector, market value, weights
+- **Frequency**: Updated frequently, typically monthly
+- **Coverage**: 10+ major iShares ETFs including URTH, IVV, EFA
+
+### Automatic Discovery
+- **Used by**: 10,000+ additional ETFs via sec-edgar-downloader
+- **Coverage**: Any ETF in SEC database with available filings
 
 ## Limitations
 
-- Depends on ETFs filing N-PORT forms (most major ETFs do)
+- **SEC NPORT**: Depends on ETFs filing N-PORT forms (most major ETFs do)
+- **iShares CSV**: Limited to supported iShares ETFs with known product IDs
 - Some newer ETFs may not have sufficient filing history
 - Complex trust structures may require manual CIK/series mapping
-- Subject to SEC rate limiting (built-in handling provided)
+- Subject to rate limiting (built-in handling provided)
 
 ## Contributing
 

@@ -42,15 +42,121 @@ def analyze_portfolio_overlap(
     # Convert to DataFrame for analysis
     df = pd.DataFrame(results["consolidated_holdings"])
 
-    # Group by security identifier (CUSIP preferred, then issuer)
-    df["security_id"] = df["id_cusip"].fillna("") + "|" + df["issuer"].fillna("")
+    # Improved security matching logic
+    def create_security_id(row):
+        cusip = row["id_cusip"] or ""
+        issuer = row["issuer"] or ""
+        title = row["title"] or ""
 
-    # Count occurrences of each security across ETFs
+        # Extract ticker from title if available (e.g., "NVIDIA CORP (NVDA)")
+        ticker = ""
+        if "(" in title and ")" in title:
+            ticker = title[title.rfind("(") + 1 : title.rfind(")")].strip()
+
+        # Primary matching strategy: Use ticker if available (most reliable)
+        if ticker and len(ticker) <= 6:  # Valid ticker symbols are typically 1-6 chars
+            return f"TICKER:{ticker.upper()}"
+
+        # Secondary: If we have CUSIP, use it
+        if cusip and cusip.strip():
+            return f"CUSIP:{cusip}"
+
+        # Tertiary: normalize company name for matching
+        if issuer:
+            # Normalize issuer name: uppercase, remove common suffixes, clean whitespace
+            normalized = issuer.upper().strip()
+            # Remove common corporate suffixes that might differ
+            suffixes = [
+                " INC",
+                " CORP",
+                " CO",
+                " LTD",
+                " LLC",
+                " LP",
+                " CORPORATION",
+                " INCORPORATED",
+                " COMPANY",
+            ]
+            for suffix in suffixes:
+                if normalized.endswith(suffix):
+                    normalized = normalized[: -len(suffix)].strip()
+                    break
+            return f"NAME:{normalized}"
+
+        return f"UNKNOWN:{cusip}|{issuer}"
+
+    df["security_id"] = df.apply(create_security_id, axis=1)
+
+    # Cross-reference mapping to find matches between different ID types
+    # Create a mapping of normalized names to all identifiers for the same company
+    name_to_ids = defaultdict(set)
+
+    for _, row in df.iterrows():
+        issuer = row["issuer"] or ""
+        title = row["title"] or ""
+        security_id = row["security_id"]
+
+        if issuer:
+            # Normalize company name
+            normalized = issuer.upper().strip()
+            suffixes = [
+                " INC",
+                " CORP",
+                " CO",
+                " LTD",
+                " LLC",
+                " LP",
+                " CORPORATION",
+                " INCORPORATED",
+                " COMPANY",
+            ]
+            for suffix in suffixes:
+                if normalized.endswith(suffix):
+                    normalized = normalized[: -len(suffix)].strip()
+                    break
+            name_to_ids[normalized].add(security_id)
+
+        # Also extract ticker from iShares titles
+        if "(" in title and ")" in title:
+            ticker = title[title.rfind("(") + 1 : title.rfind(")")].strip()
+            if ticker and len(ticker) <= 6:
+                # Map this ticker to all other IDs for same normalized name
+                if issuer:
+                    normalized = issuer.upper().strip()
+                    for suffix in [
+                        " INC",
+                        " CORP",
+                        " CO",
+                        " LTD",
+                        " LLC",
+                        " LP",
+                        " CORPORATION",
+                        " INCORPORATED",
+                        " COMPANY",
+                    ]:
+                        if normalized.endswith(suffix):
+                            normalized = normalized[: -len(suffix)].strip()
+                            break
+                    name_to_ids[normalized].add(f"TICKER:{ticker.upper()}")
+
+    # Create unified security IDs by merging related identifiers
+    id_mapping = {}
+    for normalized_name, id_set in name_to_ids.items():
+        if len(id_set) > 1:
+            # Multiple IDs for same company - use the first one as canonical
+            canonical_id = sorted(list(id_set))[0]  # Sort for consistency
+            for id_val in id_set:
+                id_mapping[id_val] = canonical_id
+
+    # Apply the mapping to unify security IDs
+    df["unified_security_id"] = df["security_id"].map(lambda x: id_mapping.get(x, x))
+
+    # Count occurrences of each security across ETFs using unified IDs
     security_counts = defaultdict(list)
     security_details = {}
 
     for _, row in df.iterrows():
-        security_id = row["security_id"]
+        security_id = row["unified_security_id"]
         etf = row["ticker_fund"]
 
         security_counts[security_id].append(etf)
