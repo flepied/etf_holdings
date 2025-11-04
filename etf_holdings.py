@@ -291,6 +291,37 @@ class ETFHoldingsExtractor:
         "ITOT": "239724",  # iShares Core S&P Total US Stock Market ETF
     }
 
+    # Amundi UCITS ETFs - Use Amundi product API (composition tab)
+    AMUNDI_ETF_MAPPINGS = {
+        "CG1": {
+            "product_id": "FR0010655712",  # Amundi ETF DAX UCITS ETF DR
+            "base_url": "https://www.amundietf.fr",
+            "context": {
+                "countryCode": "FRA",
+                "languageCode": "fr",
+                "userProfileName": "INSTIT",
+            },
+        },
+        "CS1": {
+            "product_id": "FR0010655746",  # Amundi IBEX 35 UCITS ETF ACC
+            "base_url": "https://www.amundietf.fr",
+            "context": {
+                "countryCode": "FRA",
+                "languageCode": "fr",
+                "userProfileName": "INSTIT",
+            },
+        },
+        "FMI": {
+            "product_id": "LU1681037518",  # Amundi Italy MIB ESG UCITS ETF
+            "base_url": "https://www.amundietf.fr",
+            "context": {
+                "countryCode": "FRA",
+                "languageCode": "fr",
+                "userProfileName": "INSTIT",
+            },
+        },
+    }
+
     def __init__(
         self,
         user_agent: Optional[str] = None,
@@ -382,6 +413,12 @@ class ETFHoldingsExtractor:
             if verbose:
                 logger.info(f"Using iShares CSV extraction for {ticker}")
             return self._extract_via_ishares_csv(ticker, verbose)
+
+        # Try Amundi API for European UCITS ETFs
+        if ticker in self.AMUNDI_ETF_MAPPINGS:
+            if verbose:
+                logger.info(f"Using Amundi API extraction for {ticker}")
+            return self._extract_via_amundi_api(ticker, verbose)
 
         # Try known mappings second (faster and more reliable)
         if ticker in self.KNOWN_ETF_CIKS:
@@ -695,6 +732,161 @@ class ETFHoldingsExtractor:
                 "rows": [],
                 "note": f"Error parsing iShares CSV: {str(e)[:100]}",
             }
+
+    def _extract_via_amundi_api(self, ticker: str, verbose: bool) -> Dict:
+        """Extract holdings via Amundi UCITS API."""
+        mapping = self.AMUNDI_ETF_MAPPINGS[ticker]
+        product_id = mapping["product_id"]
+        base_url = mapping.get("base_url", "https://www.amundietf.fr").rstrip("/")
+        context = mapping.get(
+            "context",
+            {"countryCode": "FRA", "languageCode": "fr", "userProfileName": "INSTIT"},
+        )
+        composition_fields = mapping.get(
+            "composition_fields",
+            [
+                "date",
+                "type",
+                "bbg",
+                "isin",
+                "name",
+                "weight",
+                "quantity",
+                "currency",
+                "sector",
+                "country",
+                "countryOfRisk",
+            ],
+        )
+
+        payload = {
+            "productIds": [product_id],
+            "context": context,
+            "composition": {"compositionFields": composition_fields},
+        }
+
+        url = f"{base_url}/mapi/ProductAPI/getProductsData"
+
+        try:
+            response = requests.post(
+                url,
+                headers={**self.headers, "Content-Type": "application/json"},
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            time.sleep(self.delay)
+
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching Amundi data for {ticker}: {e}")
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": f"Failed to fetch Amundi data: {str(e)[:100]}",
+            }
+        except ValueError as e:
+            logger.error(f"Error parsing Amundi JSON for {ticker}: {e}")
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": f"Invalid JSON from Amundi API: {str(e)[:100]}",
+            }
+
+        products = data.get("products") or []
+        if not products:
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": "No product data returned by Amundi API.",
+            }
+
+        product = products[0]
+        composition = product.get("composition") or {}
+        composition_data = composition.get("compositionData") or []
+
+        if verbose:
+            logger.info(
+                f"Received {len(composition_data)} holdings from Amundi API for {ticker}"
+            )
+
+        if not composition_data:
+            return {
+                "ticker": ticker,
+                "rows": [],
+                "note": "No composition data returned by Amundi API.",
+            }
+
+        def format_number(value) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, (int,)):
+                return str(value)
+            if isinstance(value, float):
+                if value != value:  # NaN check
+                    return ""
+                if value.is_integer():
+                    return str(int(value))
+                return f"{value:.6f}".rstrip("0").rstrip(".")
+            return str(value)
+
+        def format_percent(value) -> str:
+            if value is None:
+                return ""
+            try:
+                pct = float(value) * 100.0
+                return f"{pct:.6f}".rstrip("0").rstrip(".")
+            except (TypeError, ValueError):
+                return str(value)
+
+        rows = []
+        as_of_date = ""
+
+        for entry in composition_data:
+            characteristics = entry.get("compositionCharacteristics") or {}
+            name = (characteristics.get("name") or "").strip()
+
+            if not name:
+                continue
+
+            if not as_of_date:
+                as_of_date = (characteristics.get("date") or "").strip()
+
+            weight_val = entry.get("weight")
+            if weight_val is None:
+                weight_val = characteristics.get("weight")
+
+            bbg_value = (characteristics.get("bbg") or "").strip()
+            title = f"{name} ({bbg_value})" if bbg_value else name
+
+            row = {
+                "ticker_fund": ticker,
+                "issuer": name,
+                "title": title,
+                "id_cusip": "",
+                "id_isin": (characteristics.get("isin") or "").strip(),
+                "balance": format_number(characteristics.get("quantity")),
+                "value_usd": "",
+                "weight_pct": format_percent(weight_val),
+                "currency": (characteristics.get("currency") or "").strip(),
+                "sector": (characteristics.get("sector") or "").strip(),
+                "country": (characteristics.get("country") or "").strip(),
+                "country_of_risk": (characteristics.get("countryOfRisk") or "").strip(),
+                "security_type": (characteristics.get("type") or "").strip(),
+                "bbg": (characteristics.get("bbg") or "").strip(),
+                "as_of_date": (characteristics.get("date") or "").strip(),
+            }
+
+            rows.append(row)
+
+        note_suffix = f" as of {as_of_date}" if as_of_date else ""
+        note = f"OK via Amundi API ({len(rows)} holdings{note_suffix})"
+
+        return {
+            "ticker": ticker,
+            "rows": rows,
+            "note": note,
+        }
 
     # Include all the helper methods from the original implementation
     def _get_submissions(self, cik_str: str) -> Dict:

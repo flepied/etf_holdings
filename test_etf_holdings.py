@@ -12,7 +12,7 @@ from etf_holdings import (
     ETFHoldingsExtractor,
 )
 
-TICKERS = ["RSP", "AIQ", "FENY", "NLR", "USCA", "VONV", "VTI", "XSHQ"]
+TICKERS = ["RSP", "AIQ", "FENY", "NLR", "USCA", "VONV", "VTI", "XSHQ", "CG1", "CS1", "FMI"]
 UNSUPPORTED_TICKERS = ["BIL", "IAU", "TLT", "TBIL", "SHY"]  # Known unsupported ETFs
 
 
@@ -39,7 +39,9 @@ class TestETFHoldingsExtractor:
         for ticker in TICKERS:
             assert (
                 ticker in extractor.KNOWN_ETF_CIKS
-            ), f"{ticker} should have CIK mapping"
+                or ticker in extractor.ISHARES_ETF_MAPPINGS
+                or ticker in extractor.AMUNDI_ETF_MAPPINGS
+            ), f"{ticker} should have a configured data source"
 
         # Check mapping structure
         for ticker, mapping in extractor.KNOWN_ETF_CIKS.items():
@@ -47,6 +49,15 @@ class TestETFHoldingsExtractor:
                 len(mapping) == 3
             ), f"{ticker} mapping should have 3 elements (CIK, Series, Class)"
             assert mapping[0].startswith("000"), f"{ticker} CIK should start with zeros"
+
+        # Check Amundi mapping structure
+        for ticker, mapping in extractor.AMUNDI_ETF_MAPPINGS.items():
+            assert "product_id" in mapping and mapping["product_id"], (
+                f"{ticker} should define an Amundi product_id"
+            )
+            assert "context" in mapping and isinstance(mapping["context"], dict), (
+                f"{ticker} should define an Amundi API context"
+            )
 
 
 class TestIndividualETFs:
