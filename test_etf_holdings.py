@@ -82,9 +82,17 @@ class TestIndividualETFs:
                 "title",
                 "id_cusip",
                 "id_isin",
+                "security_ticker",
                 "balance",
                 "value_usd",
                 "weight_pct",
+                "currency",
+                "sector",
+                "country",
+                "country_of_risk",
+                "security_type",
+                "bbg",
+                "as_of_date",
             ]
             for key in expected_keys:
                 assert key in holding, f"Holding should contain {key}"

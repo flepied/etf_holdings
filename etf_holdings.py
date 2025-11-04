@@ -291,6 +291,26 @@ class ETFHoldingsExtractor:
         "ITOT": "239724",  # iShares Core S&P Total US Stock Market ETF
     }
 
+    # Fields we expect in every holding record
+    STANDARD_HOLDING_FIELDS = {
+        "ticker_fund": "",
+        "issuer": "",
+        "title": "",
+        "id_cusip": "",
+        "id_isin": "",
+        "security_ticker": "",
+        "balance": "",
+        "value_usd": "",
+        "weight_pct": "",
+        "currency": "",
+        "sector": "",
+        "country": "",
+        "country_of_risk": "",
+        "security_type": "",
+        "bbg": "",
+        "as_of_date": "",
+    }
+
     # Amundi UCITS ETFs - Use Amundi product API (composition tab)
     AMUNDI_ETF_MAPPINGS = {
         "CG1": {
@@ -701,16 +721,19 @@ class ETFHoldingsExtractor:
                     )
 
                 # Convert to our standard format
-                holding = {
-                    "ticker_fund": ticker,
-                    "issuer": safe_clean(name_val),
-                    "title": f"{safe_clean(name_val)} ({safe_clean(ticker_val)})",
-                    "id_cusip": "",  # iShares doesn't provide CUSIP in CSV
-                    "id_isin": "",  # iShares doesn't provide ISIN in CSV
-                    "balance": safe_clean(row.get("Quantity", "")),
-                    "value_usd": safe_clean(row.get("Market Value", "")),
-                    "weight_pct": safe_clean(row.get("Weight (%)", "")),
-                }
+                holding = self._normalize_holding(
+                    {
+                        "ticker_fund": ticker,
+                        "issuer": safe_clean(name_val),
+                        "title": f"{safe_clean(name_val)} ({safe_clean(ticker_val)})",
+                        "security_ticker": safe_clean(row.get("Ticker", "")),
+                        "id_cusip": "",  # iShares doesn't provide CUSIP in CSV
+                        "id_isin": "",  # iShares doesn't provide ISIN in CSV
+                        "balance": safe_clean(row.get("Quantity", "")),
+                        "value_usd": safe_clean(row.get("Market Value", "")),
+                        "weight_pct": safe_clean(row.get("Weight (%)", "")),
+                    }
+                )
 
                 # Only add if we have meaningful data
                 if holding["issuer"] and holding["issuer"] != "-":
@@ -858,6 +881,10 @@ class ETFHoldingsExtractor:
 
             bbg_value = (characteristics.get("bbg") or "").strip()
             title = f"{name} ({bbg_value})" if bbg_value else name
+            security_ticker = (
+                (characteristics.get("ticker") or "").strip()
+                or bbg_value
+            )
 
             row = {
                 "ticker_fund": ticker,
@@ -865,6 +892,7 @@ class ETFHoldingsExtractor:
                 "title": title,
                 "id_cusip": "",
                 "id_isin": (characteristics.get("isin") or "").strip(),
+                "security_ticker": security_ticker,
                 "balance": format_number(characteristics.get("quantity")),
                 "value_usd": "",
                 "weight_pct": format_percent(weight_val),
@@ -884,9 +912,33 @@ class ETFHoldingsExtractor:
 
         return {
             "ticker": ticker,
-            "rows": rows,
+            "rows": [self._normalize_holding(row) for row in rows],
             "note": note,
         }
+
+    def _normalize_holding(self, holding: Dict) -> Dict:
+        """
+        Normalize a holding record so all data sources share the same structure.
+
+        Ensures all STANDARD_HOLDING_FIELDS are present and string formatted.
+        Additional keys in the input are ignored to keep the format consistent.
+        """
+
+        normalized = {}
+        for field, default in self.STANDARD_HOLDING_FIELDS.items():
+            value = holding.get(field, default)
+
+            if value is None:
+                value_str = default
+            elif isinstance(value, (int, float)):
+                # Keep floats compact while retaining precision
+                value_str = f"{value:.6f}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+            else:
+                value_str = str(value)
+
+            normalized[field] = value_str.strip()
+
+        return normalized
 
     # Include all the helper methods from the original implementation
     def _get_submissions(self, cik_str: str) -> Dict:
@@ -1075,22 +1127,26 @@ class ETFHoldingsExtractor:
                         title = get_text("title", "description", "securityTitle")
                         cusip = get_text("cusip", "cusipNum")
                         isin = get_text("isin", "isinNum")
+                        security_ticker = get_text("ticker", "symbol", "securityTicker")
                         balance = get_text("balance", "shares", "amount", "qty")
                         value = get_text("valUSD", "value", "fairValue", "marketValue")
                         pct = get_text("pctVal", "percentOfPortfolio", "weight")
 
                         if issuer or title or cusip:
                             rows.append(
-                                {
-                                    "ticker_fund": ticker or "",
-                                    "issuer": issuer or title,
-                                    "title": title,
-                                    "id_cusip": cusip,
-                                    "id_isin": isin,
-                                    "balance": balance,
-                                    "value_usd": value,
-                                    "weight_pct": pct,
-                                }
+                                self._normalize_holding(
+                                    {
+                                        "ticker_fund": ticker or "",
+                                        "issuer": issuer or title,
+                                        "title": title,
+                                        "id_cusip": cusip,
+                                        "id_isin": isin,
+                                        "security_ticker": security_ticker,
+                                        "balance": balance,
+                                        "value_usd": value,
+                                        "weight_pct": pct,
+                                    }
+                                )
                             )
 
                     if rows:

@@ -44,24 +44,30 @@ def analyze_portfolio_overlap(
 
     # Improved security matching logic
     def create_security_id(row):
-        cusip = row["id_cusip"] or ""
-        issuer = row["issuer"] or ""
-        title = row["title"] or ""
+        isin = (row.get("id_isin") or "").strip()
+        cusip = (row.get("id_cusip") or "").strip()
+        issuer = (row.get("issuer") or "").strip()
+        title = (row.get("title") or "").strip()
+        reported_ticker = (row.get("security_ticker") or "").strip()
 
-        # Extract ticker from title if available (e.g., "NVIDIA CORP (NVDA)")
-        ticker = ""
-        if "(" in title and ")" in title:
+        # Prefer globally unique identifiers
+        if isin:
+            return f"ISIN:{isin.upper()}"
+
+        if cusip:
+            return f"CUSIP:{cusip.upper()}"
+
+        # Try explicitly reported ticker first
+        ticker = reported_ticker
+
+        # If none reported, attempt to extract from the title (e.g., "NVIDIA CORP (NVDA)")
+        if not ticker and "(" in title and ")" in title:
             ticker = title[title.rfind("(") + 1 : title.rfind(")")].strip()
 
-        # Primary matching strategy: Use ticker if available (most reliable)
-        if ticker and len(ticker) <= 6:  # Valid ticker symbols are typically 1-6 chars
+        if ticker and 1 <= len(ticker) <= 8:
             return f"TICKER:{ticker.upper()}"
 
-        # Secondary: If we have CUSIP, use it
-        if cusip and cusip.strip():
-            return f"CUSIP:{cusip}"
-
-        # Tertiary: normalize company name for matching
+        # Fallback: normalize company name
         if issuer:
             # Normalize issuer name: uppercase, remove common suffixes, clean whitespace
             normalized = issuer.upper().strip()
@@ -82,8 +88,7 @@ def analyze_portfolio_overlap(
                     normalized = normalized[: -len(suffix)].strip()
                     break
             return f"NAME:{normalized}"
-
-        return f"UNKNOWN:{cusip}|{issuer}"
+        return "UNKNOWN"
 
     df["security_id"] = df.apply(create_security_id, axis=1)
 
@@ -92,8 +97,11 @@ def analyze_portfolio_overlap(
     name_to_ids = defaultdict(set)
 
     for _, row in df.iterrows():
-        issuer = row["issuer"] or ""
-        title = row["title"] or ""
+        issuer = (row.get("issuer") or "").strip()
+        title = (row.get("title") or "").strip()
+        isin = (row.get("id_isin") or "").strip()
+        cusip = (row.get("id_cusip") or "").strip()
+        reported_ticker = (row.get("security_ticker") or "").strip()
         security_id = row["security_id"]
 
         if issuer:
@@ -138,6 +146,30 @@ def analyze_portfolio_overlap(
                             normalized = normalized[: -len(suffix)].strip()
                             break
                     name_to_ids[normalized].add(f"TICKER:{ticker.upper()}")
+
+        # Include explicitly reported tickers, ISINs, and CUSIPs in the mapping
+        if issuer:
+            normalized = issuer.upper().strip()
+            for suffix in [
+                " INC",
+                " CORP",
+                " CO",
+                " LTD",
+                " LLC",
+                " LP",
+                " CORPORATION",
+                " INCORPORATED",
+                " COMPANY",
+            ]:
+                if normalized.endswith(suffix):
+                    normalized = normalized[: -len(suffix)].strip()
+                    break
+            if reported_ticker:
+                name_to_ids[normalized].add(f"TICKER:{reported_ticker.upper()}")
+            if isin:
+                name_to_ids[normalized].add(f"ISIN:{isin.upper()}")
+            if cusip:
+                name_to_ids[normalized].add(f"CUSIP:{cusip.upper()}")
 
     # Create unified security IDs by merging related identifiers
     id_mapping = {}
