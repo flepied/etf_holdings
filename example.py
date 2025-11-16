@@ -3,12 +3,13 @@
 Example usage of the ETF Holdings Library
 """
 
+import pandas as pd
+
 from etf_holdings import (
+    ETFHoldingsExtractor,
     get_etf_holdings,
     get_multiple_etf_holdings,
-    ETFHoldingsExtractor,
 )
-import pandas as pd
 
 
 def example_single_etf():

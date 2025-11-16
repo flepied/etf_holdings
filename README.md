@@ -1,6 +1,8 @@
 # ETF Holdings Library
 
-A Python library for extracting ETF holdings data from SEC N-PORT filings with **automatic ticker discovery**. Works with any ETF that files NPORT forms, expanding coverage beyond manually curated lists.
+A Python library for extracting ETF holdings data from SEC N-PORT filings with
+**automatic ticker discovery**. Works with any ETF that files NPORT forms,
+expanding coverage beyond manually curated lists.
 
 ## Features
 
@@ -12,11 +14,13 @@ A Python library for extracting ETF holdings data from SEC N-PORT filings with *
 - **Clean data output** - Structured data with issuer, CUSIP, ISIN, values, and weights
 - **Batch processing** - Single ETF and multiple ETF processing capabilities
 - **Portfolio overlap analysis** - Identify shared holdings across multiple ETFs
+- **Geographic dispersion analysis** - Analyze country distribution with HHI metrics
 - **Smart caching** - Disk-based cache with automatic expiration (3-day default TTL)
 
 ## Supported ETFs
 
 ### iShares ETFs (Direct CSV Integration) 🔥
+
 The world's largest ETF provider now fully supported via direct CSV data extraction:
 
 - **URTH** - iShares MSCI World ETF (1,347+ positions) 🌍
@@ -31,6 +35,7 @@ The world's largest ETF provider now fully supported via direct CSV data extract
 - **ITOT** - iShares Core S&P Total US Stock Market ETF 🇺🇸
 
 ### Known High-Performance ETFs (SEC NPORT)
+
 These ETFs use curated mappings for fastest processing:
 
 - **VTI** - Vanguard Total Stock Market ETF (3,582+ positions) ⚡
@@ -45,7 +50,10 @@ These ETFs use curated mappings for fastest processing:
 - **VONV** - Vanguard Russell 1000 Value ETF ⚡
 
 ### Automatic Discovery Coverage
-**10,000+ additional ETFs** supported via automatic ticker-to-CIK discovery. The library will automatically attempt to find and extract holdings for any ETF ticker, including:
+
+**10,000+ additional ETFs** supported via automatic ticker-to-CIK discovery.
+The library will automatically attempt to find and extract holdings for any
+ETF ticker, including:
 
 - Additional Vanguard ETFs  
 - SPDR family ETFs
@@ -53,6 +61,18 @@ These ETFs use curated mappings for fastest processing:
 - And many more...
 
 ## Installation
+
+### Using uv (recommended - fastest)
+
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Sync dependencies
+uv sync
+```
+
+### Using pip
 
 ```bash
 pip install -e .
@@ -267,6 +287,7 @@ python cache_manager.py info
 - **Flexible control**: Set `cache_ttl_days=0` to disable caching via TTL
 
 **Performance Example:**
+
 ```
 Portfolio analysis (4 ETFs):
 - Without cache: ~15-20 seconds
@@ -290,9 +311,93 @@ Use the discovery mode in the original script to find the correct CIK and series
 ## Rate Limiting
 
 The library respects SEC rate limits with:
+
 - Default 200ms delay between requests
 - Configurable delays via the `delay` parameter
 - Proper error handling for rate limit responses
+
+## Geographic Dispersion Analysis
+
+Analyze the geographic distribution of your ETF holdings to assess concentration risk:
+
+### Command Line Usage
+
+```bash
+# Analyze geographic distribution for a single ETF
+python analyze_geographic_dispersion.py VTI
+
+# Analyze multiple ETFs with export
+python analyze_geographic_dispersion.py VTI SPY QQQ --export geo_analysis.csv
+
+# Force refresh country data from API
+python analyze_geographic_dispersion.py VTI --force-refresh
+
+# Verbose output
+python analyze_geographic_dispersion.py VTI SPY --verbose
+```
+
+### Example Output
+
+```
+🌍 GEOGRAPHIC DISPERSION ANALYSIS
+================================================================================
+
+📊 SUMMARY
+   • Total holdings: 3,582
+   • With country data: 3,465
+   • Without country data: 117
+   • Total countries: 45
+   • Total value: $1,234,567,890
+
+📈 CONCENTRATION METRICS
+   • HHI (Herfindahl-Hirschman Index): 8,245
+   • Effective number of countries: 1.2
+   • Concentration level: High concentration - Geographic risk
+
+🌎 TOP 20 COUNTRIES BY VALUE
+Rank   Country                   Holdings   Value                %  
+--------------------------------------------------------------------------------
+1      United States             2,845      $1,015,432,876       82.25%
+2      China                     124        $45,678,901          3.70%
+3      Japan                     98         $32,456,789          2.63%
+```
+
+### Geographic Analysis Features
+
+- **Country Extraction** - Enriches holdings with country data via yfinance API
+- **Country Normalization** - Standardizes all country data to ISO 3166-1 alpha-2 codes
+- **Smart Caching** - Persistent cache for country data (90-day TTL)
+- **HHI Calculation** - Herfindahl-Hirschman Index for concentration measurement
+- **Effective Countries** - Normalized metric for geographic diversification
+- **Regional Grouping** - Aggregates countries into geographic regions
+- **CSV Export** - Export detailed country breakdowns
+- **Rate Limit Protection** - Intelligent caching avoids API rate limits
+
+**Country Data Consistency:**
+All country data is automatically normalized to ensure consistency across different data sources:
+
+- SEC N-PORT codes (US, JP, HK) → ISO standard codes
+- yfinance full names (United States) → ISO codes + full names  
+- Amundi names (Germany) → ISO codes + full names
+- Result: Every holding has `country_code` (ISO) and `country_name` (full name)
+
+### Programmatic Usage
+
+```python
+from etf_holdings import get_etf_holdings
+from country_enricher import CountryEnricher
+
+# Get holdings
+result = get_etf_holdings('VTI')
+
+# Enrich with country data
+enricher = CountryEnricher(enable_cache=True)
+enriched = enricher.enrich_holdings(result['rows'], verbose=True)
+
+# Access country information
+for holding in enriched[:5]:
+    print(f"{holding['issuer']}: {holding['country']}")
+```
 
 ## Requirements
 
@@ -301,18 +406,21 @@ The library respects SEC rate limits with:
 - pandas>=1.3.0
 - lxml>=4.6.0
 - sec-edgar-downloader>=5.0.0
+- yfinance>=0.2.0
 
 ## Data Sources
 
 This library supports multiple data extraction methods:
 
 ### SEC EDGAR N-PORT Filings
+
 - **Used by**: Most US ETFs (Vanguard, SPDR, Invesco, etc.)
 - **Data**: Quarterly portfolio holdings with detailed CUSIP/ISIN identifiers
 - **Format**: XML documents with comprehensive security details
 - **Frequency**: Updated quarterly with detailed position data
 
 ### iShares Direct CSV Downloads  
+
 - **Used by**: BlackRock iShares ETFs (world's largest ETF provider)
 - **Data**: Real-time portfolio holdings via direct CSV downloads
 - **Format**: CSV with ticker, name, sector, market value, weights
@@ -320,6 +428,7 @@ This library supports multiple data extraction methods:
 - **Coverage**: 10+ major iShares ETFs including URTH, IVV, EFA
 
 ### Automatic Discovery
+
 - **Used by**: 10,000+ additional ETFs via sec-edgar-downloader
 - **Coverage**: Any ETF in SEC database with available filings
 
