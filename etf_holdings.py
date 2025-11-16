@@ -8,16 +8,17 @@ Extract US ETF holdings via SEC (EDGAR) from tickers using automatic discovery.
 - Features: Automatic ticker-to-CIK discovery and known mappings fallback
 """
 
-import time
-import tempfile
 import json
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
 import logging
+import tempfile
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import requests
 from lxml import etree
 from sec_edgar_downloader import Downloader
-from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -674,7 +675,7 @@ class ETFHoldingsExtractor:
     def _parse_ishares_csv(self, content: str, ticker: str, verbose: bool) -> Dict:
         """Parse iShares CSV format and extract holdings."""
         import csv
-        import io
+        import io  # noqa: F401
 
         try:
             lines = content.strip().split("\n")
@@ -732,6 +733,9 @@ class ETFHoldingsExtractor:
                         "balance": safe_clean(row.get("Quantity", "")),
                         "value_usd": safe_clean(row.get("Market Value", "")),
                         "weight_pct": safe_clean(row.get("Weight (%)", "")),
+                        "country": safe_clean(
+                            row.get("Location", "") or row.get("Country", "")
+                        ),
                     }
                 )
 
@@ -881,10 +885,7 @@ class ETFHoldingsExtractor:
 
             bbg_value = (characteristics.get("bbg") or "").strip()
             title = f"{name} ({bbg_value})" if bbg_value else name
-            security_ticker = (
-                (characteristics.get("ticker") or "").strip()
-                or bbg_value
-            )
+            security_ticker = (characteristics.get("ticker") or "").strip() or bbg_value
 
             row = {
                 "ticker_fund": ticker,
@@ -932,7 +933,11 @@ class ETFHoldingsExtractor:
                 value_str = default
             elif isinstance(value, (int, float)):
                 # Keep floats compact while retaining precision
-                value_str = f"{value:.6f}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+                value_str = (
+                    f"{value:.6f}".rstrip("0").rstrip(".")
+                    if isinstance(value, float)
+                    else str(value)
+                )
             else:
                 value_str = str(value)
 
@@ -1131,6 +1136,13 @@ class ETFHoldingsExtractor:
                         balance = get_text("balance", "shares", "amount", "qty")
                         value = get_text("valUSD", "value", "fairValue", "marketValue")
                         pct = get_text("pctVal", "percentOfPortfolio", "weight")
+                        country = get_text(
+                            "invCountry",
+                            "investmentCountry",
+                            "country",
+                            "countryOfIncorporation",
+                            "domicile",
+                        )
 
                         if issuer or title or cusip:
                             rows.append(
@@ -1145,6 +1157,7 @@ class ETFHoldingsExtractor:
                                         "balance": balance,
                                         "value_usd": value,
                                         "weight_pct": pct,
+                                        "country": country,
                                     }
                                 )
                             )

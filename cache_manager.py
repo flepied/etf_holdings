@@ -7,6 +7,7 @@ Command-line tool for managing ETF holdings cache.
 
 import argparse
 import sys
+
 from etf_holdings import ETFHoldingsExtractor
 
 

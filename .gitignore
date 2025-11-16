@@ -1,3 +1,6 @@
+# Python specific
 __pycache__
 .pytest_cache
+
+# Project specific
 etf_holdings.egg-info

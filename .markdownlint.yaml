@@ -1,0 +1,48 @@
+# Markdown linting configuration
+# See https://github.com/DavidAnson/markdownlint for rule descriptions
+
+# MD013/line-length - Line length
+MD013:
+  # Relax line length for documentation
+  line_length: 120
+  heading_line_length: 120
+  code_block_line_length: 150
+  tables: false
+  code_blocks: false
+  headings: false
+
+# MD033/no-inline-html - Inline HTML
+MD033: false
+
+# MD040/fenced-code-language - Fenced code blocks should have a language specified
+MD040: false
+
+# MD041/first-line-heading - First line in file should be a top level heading
+MD041: false
+
+# MD024/no-duplicate-heading - Multiple headings with the same content
+MD024:
+  # Allow duplicate headings in different sections
+  siblings_only: true
+
+# MD046/code-block-style - Code block style
+MD046:
+  # Allow both fenced and indented code blocks
+  style: consistent
+
+# MD007/ul-indent - Unordered list indentation
+MD007:
+  indent: 2
+  start_indented: false
+
+# MD004/ul-style - Unordered list style
+MD004:
+  style: dash
+
+# MD029/ol-prefix - Ordered list item prefix
+MD029:
+  style: one_or_ordered
+
+# MD012/no-multiple-blanks - Multiple consecutive blank lines
+MD012:
+  maximum: 2

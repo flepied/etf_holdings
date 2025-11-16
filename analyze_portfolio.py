@@ -7,10 +7,12 @@ Provides insights into diversification and concentration risks.
 """
 
 import argparse
-import pandas as pd
-from collections import defaultdict, Counter
-from typing import List, Dict
 import sys
+from collections import Counter, defaultdict
+from typing import Dict, List
+
+import pandas as pd
+
 from etf_holdings import get_multiple_etf_holdings
 
 

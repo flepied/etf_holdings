@@ -4,15 +4,28 @@ Pytest test suite for ETF Holdings Library with IB portfolio tickers.
 Tests the ETF holdings extraction for all supported ETFs.
 """
 
-import pytest
 import pandas as pd
+import pytest
+
 from etf_holdings import (
+    ETFHoldingsExtractor,
     get_etf_holdings,
     get_multiple_etf_holdings,
-    ETFHoldingsExtractor,
 )
 
-TICKERS = ["RSP", "AIQ", "FENY", "NLR", "USCA", "VONV", "VTI", "XSHQ", "CG1", "CS1", "FMI"]
+TICKERS = [
+    "RSP",
+    "AIQ",
+    "FENY",
+    "NLR",
+    "USCA",
+    "VONV",
+    "VTI",
+    "XSHQ",
+    "CG1",
+    "CS1",
+    "FMI",
+]
 UNSUPPORTED_TICKERS = ["BIL", "IAU", "TLT", "TBIL", "SHY"]  # Known unsupported ETFs
 
 
@@ -52,12 +65,12 @@ class TestETFHoldingsExtractor:
 
         # Check Amundi mapping structure
         for ticker, mapping in extractor.AMUNDI_ETF_MAPPINGS.items():
-            assert "product_id" in mapping and mapping["product_id"], (
-                f"{ticker} should define an Amundi product_id"
-            )
-            assert "context" in mapping and isinstance(mapping["context"], dict), (
-                f"{ticker} should define an Amundi API context"
-            )
+            assert (
+                "product_id" in mapping and mapping["product_id"]
+            ), f"{ticker} should define an Amundi product_id"
+            assert "context" in mapping and isinstance(
+                mapping["context"], dict
+            ), f"{ticker} should define an Amundi API context"
 
 
 class TestIndividualETFs:
