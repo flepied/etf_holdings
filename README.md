@@ -1,3 +1,6 @@
+[![Pre-commit](https://github.com/flepied/etf_holdings/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/flepied/etf_holdings/actions/workflows/pre-commit.yml)
+[![CI](https://github.com/flepied/etf_holdings/actions/workflows/ci.yml/badge.svg)](https://github.com/flepied/etf_holdings/actions/workflows/ci.yml)
+
 # ETF Holdings Library
 
 A Python library for extracting ETF holdings data from SEC N-PORT filings with
