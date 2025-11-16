@@ -17,9 +17,7 @@ Runs on every pull request and push to main/develop branches.
 
 **Status Badge:**
 
-```markdown
-![Pre-commit Checks](https://github.com/OWNER/REPO/actions/workflows/pre-commit.yml/badge.svg)
-```
+[![Pre-commit Checks](https://github.com/flepied/etf_holdings/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/flepied/etf_holdings/actions/workflows/pre-commit.yml)
 
 ### Continuous Integration (`workflows/ci.yml`)
 
@@ -27,7 +25,7 @@ Comprehensive CI pipeline that runs on pull requests and pushes.
 
 **Jobs:**
 
-1. **Test** - Run tests on Python 3.8, 3.9, 3.10, 3.11, 3.12
+1. **Test** - Run tests on Python 3.8, 3.10, 3.12, 3.14
    - Installs dependencies
    - Runs pytest with coverage
    - Uploads coverage to Codecov
@@ -45,9 +43,7 @@ Comprehensive CI pipeline that runs on pull requests and pushes.
 
 **Status Badge:**
 
-```markdown
-![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)
-```
+[![CI](https://github.com/flepied/etf_holdings/actions/workflows/ci.yml/badge.svg)](https://github.com/flepied/etf_holdings/actions/workflows/ci.yml)
 
 ## Issue Templates
 
@@ -86,52 +82,6 @@ Automatic dependency updates configured for:
 
 - Python packages (weekly on Mondays)
 - GitHub Actions (weekly on Mondays)
-
-## Setting Up
-
-### 1. Enable GitHub Actions
-
-GitHub Actions should be automatically enabled for your repository.
-
-### 2. Add Status Badges
-
-Add these badges to your main README.md:
-
-```markdown
-[![Pre-commit](https://github.com/OWNER/REPO/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/pre-commit.yml)
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/OWNER/REPO/branch/main/graph/badge.svg)](https://codecov.io/gh/OWNER/REPO)
-```
-
-Replace `OWNER/REPO` with your GitHub username and repository name.
-
-### 3. Configure Codecov (Optional)
-
-1. Sign up at [codecov.io](https://codecov.io)
-2. Enable your repository
-3. Add `CODECOV_TOKEN` to repository secrets (if private repo)
-
-### 4. Branch Protection Rules
-
-Recommended branch protection settings for `main`:
-
-- ✅ Require pull request reviews before merging
-- ✅ Require status checks to pass before merging
-  - `pre-commit`
-  - `test (3.11)` or all Python versions
-  - `lint`
-  - `build`
-- ✅ Require branches to be up to date before merging
-- ✅ Include administrators
-
-### 5. Dependabot Configuration
-
-Update `.github/dependabot.yml` reviewers:
-
-```yaml
-reviewers:
-  - "your-github-username"
-```
 
 ## Troubleshooting
 
